@@ -1,0 +1,967 @@
+---
+import { getCollection } from 'astro:content';
+import OrchardEditor from '../components/OrchardEditor.astro';
+
+const notes = await getCollection('notes');
+
+// Sort by date descending
+const sorted = notes.sort((a:any, b:any) =>
+  new Date(b.data.date).getTime() - new Date(a.data.date).getTime()
+);
+
+// Category colors (css class suffixes)
+const catMeta: Record<string, { label: string; emoji: string }> = {
+  'system-design': { label: 'System Design', emoji: '🏗️' },
+  'dsa':           { label: 'DSA',           emoji: '🌲' },
+  'os':            { label: 'OS',             emoji: '🍂' },
+  'ai-ml':         { label: 'AI / ML',        emoji: '✨' },
+  'misc':          { label: 'Misc',           emoji: '🌸' },
+};
+---
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Memory Orchard — a personal learning garden" />
+  <title>Memory Orchard 🌳</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500;600&display=swap"
+    rel="stylesheet"
+  />
+
+  <!-- Marked.js for markdown rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+</head>
+
+<body>
+
+  <!-- ── CANVAS BACKGROUND ── -->
+  <div id="orchard-bg" aria-hidden="true">
+    <div class="bg-gradient"></div>
+    <!-- Decorative scattered elements -->
+    <div class="bg-deco" style="top:8%;left:5%">🌿</div>
+    <div class="bg-deco" style="top:15%;left:82%">🍃</div>
+    <div class="bg-deco" style="top:72%;left:3%">🌾</div>
+    <div class="bg-deco" style="top:80%;left:88%">🌷</div>
+    <div class="bg-deco" style="top:40%;left:92%">🌼</div>
+    <div class="bg-deco" style="top:55%;left:6%">🍂</div>
+    <div class="bg-deco" style="top:25%;left:48%">🌸</div>
+    <div class="bg-deco" style="top:90%;left:45%">🌻</div>
+  </div>
+
+  <!-- ── HEADER ── -->
+  <header id="orchard-header">
+    <div class="header-inner">
+      <div class="header-brand">
+        <span class="header-logo">🌳</span>
+        <div>
+          <h1>Memory Orchard</h1>
+          <p class="header-sub">your personal garden of knowledge</p>
+        </div>
+      </div>
+
+      <nav class="header-nav" aria-label="Filter by category">
+        <button class="filter-chip filter-active" data-filter="all">All</button>
+        {Object.entries(catMeta).map(([key, { label, emoji }]) => (
+          <button class="filter-chip" data-filter={key}>
+            <span>{emoji}</span> {label}
+          </button>
+        ))}
+      </nav>
+    </div>
+  </header>
+
+  <!-- ── CANVAS ── -->
+  <main id="orchard-canvas" aria-label="Note orchard canvas">
+
+    {sorted.length === 0 && (
+      <div class="empty-state">
+        <div class="empty-icon">🌱</div>
+        <h2>Your orchard is empty</h2>
+        <p>Plant your first memory using the button below.</p>
+      </div>
+    )}
+
+    {sorted.map((note:any, i:any) => {
+      const cat = note.data.category || 'misc';
+      const meta = catMeta[cat] || catMeta['misc'];
+      return (
+        <article
+          class={`note-tree cat-${cat}`}
+          data-id={note.id}
+          data-category={cat}
+          role="article"
+          aria-label={`Note: ${note.data.title}`}
+          style={`--seed-index: ${i}`}
+        >
+          <div class="note-drag-handle" title="Drag to move" aria-hidden="true">⠿</div>
+
+          <header class="note-header">
+            <span class="note-emoji">{meta.emoji}</span>
+            <div class="note-meta">
+              <h3 class="note-title">{note.data.title}</h3>
+              <div class="note-chips">
+                <span class="note-cat-badge">{meta.label}</span>
+                <time class="note-date" datetime={note.data.date}>
+                  {new Date(note.data.date).toLocaleDateString('en-US', {
+                    month: 'short', day: 'numeric', year: 'numeric'
+                  })}
+                </time>
+              </div>
+            </div>
+          </header>
+
+          <div class="note-body-preview" data-raw={note.body}>
+            <!-- Rendered markdown inserted by JS -->
+          </div>
+
+          {note.data.tags && note.data.tags.length > 0 && (
+            <footer class="note-footer">
+              {note.data.tags.map((tag: string) => (
+                <span class="note-tag">#{tag}</span>
+              ))}
+            </footer>
+          )}
+
+          <button class="note-expand-btn" aria-label="Expand note" title="Read more">
+            <span class="expand-icon">↗</span>
+          </button>
+        </article>
+      );
+    })}
+  </main>
+
+  <!-- ── EXPANDED NOTE MODAL ── -->
+  <div id="note-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-inner">
+      <div class="modal-header">
+        <div>
+          <span id="modal-emoji" class="modal-emoji"></span>
+          <h2 id="modal-title" class="modal-title"></h2>
+          <div class="modal-chips">
+            <span id="modal-cat" class="note-cat-badge"></span>
+            <time id="modal-date" class="note-date"></time>
+          </div>
+        </div>
+        <button id="modal-close" aria-label="Close">✕</button>
+      </div>
+      <div id="modal-body" class="modal-body prose"></div>
+      <div id="modal-tags" class="note-footer" style="margin-top:1.2rem"></div>
+    </div>
+  </div>
+  <div id="modal-backdrop" aria-hidden="true"></div>
+
+  <!-- ── EDITOR ── -->
+  <OrchardEditor />
+
+  <!-- ── NOTE COUNT ── -->
+  <div id="note-count-badge" aria-live="polite">
+    {sorted.length} {sorted.length === 1 ? 'memory' : 'memories'} growing
+  </div>
+
+</body>
+</html>
+
+<!-- ═══════════════════════════════════════════
+     GLOBAL STYLES
+════════════════════════════════════════════ -->
+<style is:global>
+  *, *::before, *::after { box-sizing: border-box; }
+
+  :root {
+    --cream:       #fdf8f2;
+    --cream-2:     #f5ede0;
+    --cream-3:     #eeddc8;
+    --sand:        #e0cebc;
+    --bark:        #c8a97e;
+    --bark-dark:   #9a7350;
+    --soil:        #3d2b1a;
+    --soil-mid:    #6b4f35;
+    --sage:        #8aad8f;
+    --sage-dark:   #5a8561;
+    --sage-pale:   #d4e9d6;
+    --blush:       #f2d4d0;
+    --blush-dark:  #d49a8a;
+    --sky:         #d0e4f0;
+    --amber-note:  #f5e2b8;
+    --teal-note:   #c5e3df;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    font-family: 'Inter', sans-serif;
+    background: var(--cream);
+    color: var(--soil);
+    overflow-x: hidden;
+  }
+
+  /* ── CANVAS BG ── */
+  #orchard-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+  }
+  .bg-gradient {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 70% 50% at 20% 10%, #e8f2e8 0%, transparent 60%),
+      radial-gradient(ellipse 60% 40% at 80% 80%, #f2e4d5 0%, transparent 60%),
+      radial-gradient(ellipse 50% 60% at 50% 40%, #fdeee8 0%, transparent 70%),
+      var(--cream);
+  }
+  .bg-deco {
+    position: absolute;
+    font-size: 1.5rem;
+    opacity: 0.18;
+    user-select: none;
+    filter: blur(0.4px);
+    animation: sway 6s ease-in-out infinite;
+    animation-delay: calc(var(--i, 0) * 0.8s);
+  }
+  @keyframes sway {
+    0%, 100% { transform: rotate(-3deg) translateY(0); }
+    50%       { transform: rotate(3deg) translateY(-4px); }
+  }
+
+  /* ── HEADER ── */
+  #orchard-header {
+    position: sticky;
+    top: 0;
+    z-index: 800;
+    background: rgba(253, 248, 242, 0.88);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--cream-3);
+    padding: 0.8rem 1.5rem;
+  }
+  .header-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+  }
+  .header-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .header-logo { font-size: 1.8rem; }
+  .header-brand h1 {
+    margin: 0;
+    font-family: 'Lora', serif;
+    font-size: 1.35rem;
+    font-weight: 600;
+    color: var(--soil);
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+  }
+  .header-sub {
+    margin: 0;
+    font-size: 0.74rem;
+    color: var(--bark-dark);
+    letter-spacing: 0.02em;
+  }
+  .header-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+  .filter-chip {
+    padding: 0.28rem 0.8rem;
+    border-radius: 9999px;
+    border: 1.5px solid var(--sand);
+    background: var(--cream-2);
+    color: var(--soil-mid);
+    font-family: inherit;
+    font-size: 0.78rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .filter-chip:hover { border-color: var(--bark); background: var(--cream-3); }
+  .filter-chip.filter-active {
+    background: var(--sage);
+    border-color: var(--sage);
+    color: #fff;
+    font-weight: 700;
+  }
+
+  /* ── CANVAS ── */
+  #orchard-canvas {
+    position: relative;
+    min-height: calc(100vh - 70px);
+    padding: 2rem;
+    z-index: 1;
+  }
+
+  /* ── NOTE TREES ── */
+  .note-tree {
+    position: absolute;
+    width: 280px;
+    background: var(--cream);
+    border-radius: 18px;
+    border: 1.5px solid var(--cream-3);
+    padding: 1rem 1.1rem 0.85rem;
+    cursor: grab;
+    user-select: none;
+    transition: box-shadow 0.2s ease, transform 0.15s ease;
+    box-shadow: 0 2px 16px rgba(100, 70, 30, 0.07), 0 1px 4px rgba(100, 70, 30, 0.05);
+    will-change: transform;
+    animation: float-in 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    animation-delay: calc(var(--seed-index) * 0.06s);
+  }
+  @keyframes float-in {
+    from { opacity: 0; transform: scale(0.88) translateY(10px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  .note-tree:hover {
+    box-shadow: 0 8px 32px rgba(100, 70, 30, 0.14), 0 2px 8px rgba(100, 70, 30, 0.08);
+    transform: translateY(-2px);
+    z-index: 10;
+  }
+  .note-tree.dragging {
+    cursor: grabbing;
+    box-shadow: 0 20px 50px rgba(100, 70, 30, 0.22);
+    transform: scale(1.03) rotate(1.5deg);
+    z-index: 999;
+  }
+  .note-tree.hidden { display: none; }
+
+  /* category tints */
+  .cat-system-design { background: #fdf8f2; border-color: #e8d5bb; }
+  .cat-dsa           { background: #f5f9f5; border-color: #c8ddc9; }
+  .cat-os            { background: #fdf4f2; border-color: #e8ccc8; }
+  .cat-ai-ml         { background: #f2f6fc; border-color: #c4d8ef; }
+  .cat-misc          { background: #fdf2f8; border-color: #e8c8de; }
+
+  /* ── DRAG HANDLE ── */
+  .note-drag-handle {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    font-size: 1rem;
+    color: var(--sand);
+    opacity: 0;
+    transition: opacity 0.15s;
+    cursor: grab;
+    line-height: 1;
+  }
+  .note-tree:hover .note-drag-handle { opacity: 1; }
+
+  /* ── NOTE HEADER ── */
+  .note-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    margin-bottom: 0.7rem;
+  }
+  .note-emoji { font-size: 1.3rem; flex-shrink: 0; margin-top: 0.05rem; }
+  .note-meta { min-width: 0; }
+  .note-title {
+    margin: 0 0 0.25rem;
+    font-family: 'Lora', serif;
+    font-size: 0.97rem;
+    font-weight: 600;
+    color: var(--soil);
+    line-height: 1.35;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .note-chips {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+  .note-cat-badge {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    padding: 0.15rem 0.5rem;
+    border-radius: 9999px;
+    background: var(--bark);
+    color: var(--soil);
+  }
+  .cat-dsa   .note-cat-badge { background: var(--sage-pale); color: var(--sage-dark); }
+  .cat-os    .note-cat-badge { background: var(--blush); color: #7a3530; }
+  .cat-ai-ml .note-cat-badge { background: var(--sky); color: #2a5278; }
+  .cat-misc  .note-cat-badge { background: #f0d8ec; color: #6b3060; }
+
+  .note-date {
+    font-size: 0.68rem;
+    color: var(--bark-dark);
+    white-space: nowrap;
+  }
+
+  /* ── NOTE BODY PREVIEW ── */
+  .note-body-preview {
+    font-size: 0.82rem;
+    line-height: 1.6;
+    color: var(--soil-mid);
+    max-height: 110px;
+    overflow: hidden;
+    mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+  }
+  .note-body-preview p { margin: 0 0 0.4em; }
+  .note-body-preview h1,
+  .note-body-preview h2,
+  .note-body-preview h3 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin: 0.5em 0 0.2em;
+    font-family: 'Lora', serif;
+  }
+  .note-body-preview code {
+    font-size: 0.78rem;
+    background: var(--cream-2);
+    border-radius: 4px;
+    padding: 0.1em 0.3em;
+  }
+  .note-body-preview pre {
+    background: var(--cream-2);
+    border-radius: 8px;
+    padding: 0.5rem;
+    overflow: hidden;
+    font-size: 0.75rem;
+  }
+  .note-body-preview ul, .note-body-preview ol {
+    padding-left: 1.1em;
+    margin: 0.2em 0;
+  }
+
+  /* ── NOTE FOOTER ── */
+  .note-footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-top: 0.6rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--cream-3);
+  }
+  .note-tag {
+    font-size: 0.68rem;
+    color: var(--bark-dark);
+    background: var(--cream-2);
+    border-radius: 9999px;
+    padding: 0.1rem 0.45rem;
+    white-space: nowrap;
+  }
+
+  /* ── EXPAND BUTTON ── */
+  .note-expand-btn {
+    position: absolute;
+    bottom: 0.6rem;
+    right: 0.7rem;
+    background: none;
+    border: 1px solid var(--sand);
+    border-radius: 50%;
+    width: 26px; height: 26px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    color: var(--bark-dark);
+    font-size: 0.75rem;
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s;
+    padding: 0;
+  }
+  .note-tree:hover .note-expand-btn { opacity: 1; }
+  .note-expand-btn:hover { background: var(--cream-3); }
+
+  /* ── EMPTY STATE ── */
+  .empty-state {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    pointer-events: none;
+  }
+  .empty-icon { font-size: 3.5rem; display: block; margin-bottom: 0.75rem; }
+  .empty-state h2 {
+    font-family: 'Lora', serif;
+    font-size: 1.3rem;
+    color: var(--soil);
+    margin: 0 0 0.4rem;
+    font-weight: 600;
+  }
+  .empty-state p { color: var(--bark-dark); font-size: 0.9rem; margin: 0; }
+
+  /* ── NOTE COUNT ── */
+  #note-count-badge {
+    position: fixed;
+    bottom: 2rem;
+    left: 2rem;
+    font-size: 0.75rem;
+    color: var(--bark-dark);
+    background: rgba(253, 248, 242, 0.85);
+    border: 1px solid var(--cream-3);
+    border-radius: 9999px;
+    padding: 0.3rem 0.85rem;
+    z-index: 900;
+    backdrop-filter: blur(6px);
+  }
+
+  /* ── MODAL ── */
+  #modal-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(62, 44, 28, 0.2);
+    backdrop-filter: blur(3px);
+    z-index: 1100;
+  }
+  #modal-backdrop.open { display: block; }
+
+  #note-modal {
+    display: none;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -48%) scale(0.96);
+    width: min(680px, 92vw);
+    max-height: 80vh;
+    background: var(--cream);
+    border-radius: 20px;
+    border: 1.5px solid var(--cream-3);
+    box-shadow: 0 24px 60px rgba(62, 44, 28, 0.18);
+    z-index: 1200;
+    overflow: hidden;
+    transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s;
+    opacity: 0;
+  }
+  #note-modal.open {
+    display: flex;
+    flex-direction: column;
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+  .modal-inner {
+    padding: 1.5rem 1.6rem 2rem;
+    overflow-y: auto;
+    flex: 1;
+  }
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1.2rem;
+    gap: 1rem;
+  }
+  .modal-emoji { font-size: 1.6rem; display: block; margin-bottom: 0.3rem; }
+  .modal-title {
+    margin: 0 0 0.35rem;
+    font-family: 'Lora', serif;
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: var(--soil);
+  }
+  .modal-chips {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  #modal-close {
+    background: none;
+    border: 1px solid var(--sand);
+    border-radius: 50%;
+    width: 32px; height: 32px;
+    cursor: pointer;
+    color: var(--soil-mid);
+    font-size: 0.85rem;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+  }
+  #modal-close:hover { background: var(--cream-3); }
+
+  /* ── PROSE (modal body) ── */
+  .prose {
+    font-size: 0.93rem;
+    line-height: 1.72;
+    color: var(--soil-mid);
+  }
+  .prose h1, .prose h2, .prose h3 {
+    font-family: 'Lora', serif;
+    color: var(--soil);
+    font-weight: 600;
+    margin: 1.3em 0 0.4em;
+    line-height: 1.3;
+  }
+  .prose h1 { font-size: 1.25rem; }
+  .prose h2 { font-size: 1.08rem; }
+  .prose h3 { font-size: 0.97rem; }
+  .prose p  { margin: 0 0 0.9em; }
+  .prose ul, .prose ol { padding-left: 1.4em; margin: 0 0 0.8em; }
+  .prose li { margin-bottom: 0.25em; }
+  .prose strong { font-weight: 600; color: var(--soil); }
+  .prose em { font-style: italic; }
+  .prose code {
+    font-size: 0.84em;
+    background: var(--cream-2);
+    border: 1px solid var(--sand);
+    border-radius: 5px;
+    padding: 0.1em 0.4em;
+  }
+  .prose pre {
+    background: #1e1614;
+    border-radius: 12px;
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+    margin: 0.8em 0;
+  }
+  .prose pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    color: #e8d5c0;
+    font-size: 0.83em;
+    line-height: 1.65;
+  }
+  .prose blockquote {
+    border-left: 3px solid var(--bark);
+    margin: 0.8em 0;
+    padding: 0.4em 0.9em;
+    background: var(--cream-2);
+    border-radius: 0 8px 8px 0;
+    font-style: italic;
+    color: var(--soil-mid);
+  }
+  .prose table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88em;
+    margin: 0.8em 0;
+  }
+  .prose th {
+    background: var(--cream-2);
+    font-weight: 600;
+    color: var(--soil);
+    padding: 0.4em 0.7em;
+    border: 1px solid var(--sand);
+    text-align: left;
+  }
+  .prose td {
+    padding: 0.35em 0.7em;
+    border: 1px solid var(--cream-3);
+  }
+  .prose hr {
+    border: none;
+    border-top: 1px solid var(--sand);
+    margin: 1.2em 0;
+  }
+  .prose a { color: var(--sage-dark); }
+</style>
+
+<script>
+  // ── Client-side Configuration ──
+  const clientCatMeta: Record<string, { label: string; emoji: string }> = {
+    'system-design': { label: 'System Design', emoji: '🏗️' },
+    'dsa':           { label: 'DSA',           emoji: '🌲' },
+    'os':            { label: 'OS',            emoji: '🍂' },
+    'ai-ml':         { label: 'AI / ML',        emoji: '✨' },
+    'misc':          { label: 'Misc',          emoji: '🌸' },
+  };
+
+  const STORAGE_KEY = 'memory-orchard-positions';
+  const PADDING = 24;
+  const NOTE_W = 280;
+  const NOTE_H_APPROX = 220;
+  const HEADER_H = 80;
+
+  // ── 1. Render Local Storage Notes onto Canvas ──
+  function loadAndRenderLocalNotes() {
+    const canvas = document.getElementById('orchard-canvas');
+    if (!canvas) return;
+
+    const localNotes = JSON.parse(localStorage.getItem('orchard-drafts') || '[]');
+    if (localNotes.length === 0) return;
+
+    // Remove empty state if it's visible
+    const emptyState = canvas.querySelector('.empty-state');
+    if (emptyState) emptyState.remove();
+
+    // Find current number of server-rendered notes to continue the index count
+    let baseIndex = canvas.querySelectorAll('.note-tree').length;
+
+    localNotes.forEach((note: any) => {
+      // Avoid rendering duplicates if already on screen
+      if (canvas.querySelector(`[data-id="${note.id}"]`)) return;
+
+      const cat = note.category || 'misc';
+      const meta = clientCatMeta[cat] || clientCatMeta['misc'];
+      
+      const article = document.createElement('article');
+      article.className = `note-tree cat-${cat}`;
+      article.dataset.id = note.id;
+      article.dataset.category = cat;
+      article.setAttribute('role', 'article');
+      article.setAttribute('aria-label', `Note: ${note.title}`);
+      article.style.setProperty('--seed-index', String(baseIndex++));
+
+      // Build out internal card structure
+      const formattedDate = new Date(note.date).toLocaleDateString('en-US', {
+        month: 'short', day: 'numeric', year: 'numeric'
+      });
+
+      // Safely parse Markdown preview strings 
+      let bodyHtml = note.body || '';
+      if ((window as any).marked) {
+        bodyHtml = (window as any).marked.parse(note.body || '');
+      }
+
+      // Format tags array safely
+      const tagsHtml = note.tags && note.tags.length > 0 
+        ? `<footer class="note-footer">${note.tags.map((t: string) => `<span class="note-tag">#${t}</span>`).join('')}</footer>`
+        : '';
+
+      article.innerHTML = `
+        <div class="note-drag-handle" title="Drag to move" aria-hidden="true">⠿</div>
+        <header class="note-header">
+          <span class="note-emoji">${meta.emoji}</span>
+          <div class="note-meta">
+            <h3 class="note-title">${note.title}</h3>
+            <div class="note-chips">
+              <span class="note-cat-badge">${meta.label}</span>
+              <time class="note-date" datetime="${note.date}">${formattedDate}</time>
+            </div>
+          </div>
+        </header>
+        <div class="note-body-preview" data-raw="${encodeURIComponent(note.body || '')}">
+          ${bodyHtml}
+        </div>
+        ${tagsHtml}
+        <button class="note-expand-btn" aria-label="Expand note" title="Read more">
+          <span class="expand-icon">↗</span>
+        </button>
+      `;
+
+      canvas.appendChild(article);
+      initDrag(article); // Wire up drag-and-drop instantly
+    });
+
+    updateTotalCount();
+  }
+
+  // ── 2. Drag & drop logic ──
+  function loadPositions(): Record<string, { left: number; top: number }> {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    } catch {
+      return {};
+    }
+  }
+
+  function savePosition(id: string, left: number, top: number) {
+    const positions = loadPositions();
+    positions[id] = { left, top };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(positions));
+  }
+
+  function defaultPosition(index: number) {
+    const cols = Math.max(1, Math.floor((window.innerWidth - PADDING * 2) / (NOTE_W + PADDING)));
+    const col = index % cols;
+    const row = Math.floor(index / cols);
+    const left = PADDING + col * (NOTE_W + PADDING);
+    const top = HEADER_H + PADDING + row * (NOTE_H_APPROX + PADDING);
+    return { left, top };
+  }
+
+  function applyPositions() {
+    const positions = loadPositions();
+    const notes = document.querySelectorAll<HTMLElement>('.note-tree');
+    notes.forEach((note, i) => {
+      const id = note.dataset.id!;
+      const pos = positions[id] || defaultPosition(i);
+      note.style.left = pos.left + 'px';
+      note.style.top  = pos.top + 'px';
+    });
+  }
+
+  function initDrag(note: HTMLElement) {
+    let startX = 0, startY = 0, startLeft = 0, startTop = 0;
+    let isDragging = false;
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isDragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      const newLeft = Math.max(0, startLeft + dx);
+      const newTop  = Math.max(HEADER_H, startTop + dy);
+      note.style.left = newLeft + 'px';
+      note.style.top  = newTop + 'px';
+    };
+
+    const onMouseUp = (e: MouseEvent) => {
+      if (!isDragging) return;
+      isDragging = false;
+      note.classList.remove('dragging');
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+
+      const left = parseInt(note.style.left, 10);
+      const top  = parseInt(note.style.top, 10);
+      savePosition(note.dataset.id!, left, top);
+    };
+
+    note.addEventListener('mousedown', (e: MouseEvent) => {
+      if ((e.target as HTMLElement).closest('.note-expand-btn')) return;
+      e.preventDefault();
+      isDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      startLeft = parseInt(note.style.left, 10) || 0;
+      startTop  = parseInt(note.style.top, 10) || 0;
+      note.classList.add('dragging');
+
+      document.querySelectorAll('.note-tree').forEach(n => (n as HTMLElement).style.zIndex = '1');
+      note.style.zIndex = '50';
+
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    });
+  }
+
+  // ── 3. Filter logic ──
+  function initFilter() {
+    const chips = document.querySelectorAll<HTMLButtonElement>('.filter-chip');
+    chips.forEach(chip => {
+      chip.addEventListener('click', () => {
+        chips.forEach(c => c.classList.remove('filter-active'));
+        chip.classList.add('filter-active');
+        const filter = chip.dataset.filter!;
+        const notes = document.querySelectorAll<HTMLElement>('.note-tree');
+        
+        notes.forEach(note => {
+          const match = filter === 'all' || note.dataset.category === filter;
+          note.classList.toggle('hidden', !match);
+        });
+        updateTotalCount();
+      });
+    });
+  }
+
+  // ── 4. Modal Expand (Using Event Delegation now) ──
+  function initModal() {
+    const modal    = document.getElementById('note-modal')!;
+    const backdrop = document.getElementById('modal-backdrop')!;
+    const closeBtn = document.getElementById('modal-close')!;
+    const modalTitle = document.getElementById('modal-title')!;
+    const modalEmoji = document.getElementById('modal-emoji')!;
+    const modalCat   = document.getElementById('modal-cat')!;
+    const modalDate  = document.getElementById('modal-date')!;
+    const modalBody  = document.getElementById('modal-body')!;
+    const modalTags  = document.getElementById('modal-tags')!;
+
+    // Delegated click handler on the canvas wrapper
+    document.getElementById('orchard-canvas')?.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.note-expand-btn');
+      if (!btn) return;
+
+      e.stopPropagation();
+      const note = btn.closest<HTMLElement>('.note-tree')!;
+
+      modalTitle.textContent = note.querySelector('.note-title')!.textContent || '';
+      modalEmoji.textContent = note.querySelector('.note-emoji')!.textContent || '';
+      modalCat.textContent   = note.querySelector('.note-cat-badge')!.textContent || '';
+      modalDate.textContent  = note.querySelector('.note-date')!.textContent || '';
+
+      // Fallback decode system for dynamically created note data
+      const previewEl = note.querySelector<HTMLElement>('.note-body-preview')!;
+      const rawText = previewEl.dataset.raw ? decodeURIComponent(previewEl.dataset.raw) : (previewEl.textContent || '');
+      
+      modalBody.innerHTML = (window as any).marked ? (window as any).marked.parse(rawText) : rawText;
+
+      modalTags.innerHTML = '';
+      note.querySelectorAll('.note-tag').forEach(t => {
+        modalTags.appendChild(t.cloneNode(true));
+      });
+
+      modal.className = '';
+      modal.classList.add('open');
+      
+      const noteClasses = ['cat-dsa', 'cat-os', 'cat-ai-ml', 'cat-misc', 'cat-system-design'];
+      noteClasses.forEach(cls => {
+        if (note.classList.contains(cls)) modal.classList.add(cls);
+      });
+
+      backdrop.classList.add('open');
+      modal.setAttribute('aria-hidden', 'false');
+    });
+
+    function closeModal() {
+      modal.classList.remove('open');
+      backdrop.classList.remove('open');
+      modal.setAttribute('aria-hidden', 'true');
+    }
+    closeBtn.addEventListener('click', closeModal);
+    backdrop.addEventListener('click', closeModal);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+  }
+
+  // ── 5. Dynamic Helpers ──
+  function updateTotalCount() {
+    const visible = document.querySelectorAll('.note-tree:not(.hidden)').length;
+    const badge = document.getElementById('note-count-badge');
+    if (badge) {
+      badge.textContent = `${visible} ${visible === 1 ? 'memory' : 'memories'} growing`;
+    }
+  }
+
+  function updateCanvasHeight() {
+    const notes = document.querySelectorAll<HTMLElement>('.note-tree');
+    let maxBottom = window.innerHeight;
+    notes.forEach(note => {
+      const top  = parseInt(note.style.top, 10) || 0;
+      const h    = note.offsetHeight || NOTE_H_APPROX;
+      maxBottom = Math.max(maxBottom, top + h + PADDING * 2);
+    });
+    const canvas = document.getElementById('orchard-canvas');
+    if (canvas) canvas.style.minHeight = maxBottom + 'px';
+  }
+
+  // ── 6. Live Listener for Form Creation Submissions ──
+  window.addEventListener('orchard-note-created', () => {
+    loadAndRenderLocalNotes();
+    applyPositions();
+    setTimeout(updateCanvasHeight, 50);
+  });
+
+  // ── Boot ──
+  document.addEventListener('DOMContentLoaded', () => {
+    // Initial markdown parsing for static notes
+    const staticPreviews = document.querySelectorAll<HTMLElement>('.note-body-preview');
+    staticPreviews.forEach(el => {
+      const raw = el.dataset.raw || '';
+      if ((window as any).marked && raw) el.innerHTML = (window as any).marked.parse(raw);
+    });
+
+    loadAndRenderLocalNotes(); // 1. Pull from browser storage first!
+    applyPositions();          // 2. Position everything
+    
+    document.querySelectorAll<HTMLElement>('.note-tree').forEach(initDrag);
+    initFilter();
+    initModal();
+    setTimeout(updateCanvasHeight, 200);
+
+    window.addEventListener('resize', () => {
+      const positions = loadPositions();
+      if (Object.keys(positions).length === 0) applyPositions();
+      updateCanvasHeight();
+    });
+  });
+</script>
